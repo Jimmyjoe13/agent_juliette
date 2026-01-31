@@ -1,0 +1,36 @@
+[project]
+name = "agent-juliette"
+version = "0.1.0"
+description = "Agent IA pour la création et l'envoi automatique de devis - nana-intelligence.fr"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    # Web Framework
+    "fastapi[standard]>=0.128.0",
+    "uvicorn>=0.34.0",
+    
+    # OpenAI & LLM
+    "openai>=1.60.0",
+    
+    # Qdrant - Base vectorielle
+    "qdrant-client>=1.13.0",
+    
+    # Gmail API
+    "google-api-python-client>=2.160.0",
+    "google-auth-httplib2>=0.2.0",
+    "google-auth-oauthlib>=1.2.1",
+    
+    # PDF Generation
+    "reportlab>=4.2.0",
+    
+    # Configuration & Utils
+    "pydantic-settings>=2.7.0",
+    "python-dotenv>=1.0.1",
+    
+    # Dev & Testing
+    "pre-commit>=4.5.1",
+    "pytest>=9.0.2",
+    "pytest-asyncio>=0.25.0",
+    "ruff>=0.14.14",
+    "httpx>=0.28.0",
+]
