@@ -1,10 +1,32 @@
+# Environnement
 .env
-__pycache__/
-*.pyc
 .venv/
 venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
 .vscode/
+.idea/
+
+# Logs
 *.log
+
+# Données locales
 data/
+
+# Credentials sensibles (NE JAMAIS COMMIT)
 credentials.json
 token.json
+
+# Fichiers générés
+generated_pdfs/
+*.pdf
+
+# OS
+.DS_Store
+Thumbs.db
+
