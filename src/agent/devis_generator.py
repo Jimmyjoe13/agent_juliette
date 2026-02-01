@@ -15,19 +15,21 @@ from src.agent.prompts import get_system_prompt, build_user_prompt
 from src.agent.devis_schemas import LLMDevisPayload, extract_json_from_text
 from src.integrations.openai_service import get_openai_service
 from src.integrations.qdrant_service import get_qdrant_service
+from src.integrations.perplexity_service import research_company_cached
 
 logger = logging.getLogger(__name__)
 
 
 class DevisGenerator:
     """
-    Générateur de devis utilisant RAG + LLM.
+    Générateur de devis utilisant Perplexity + RAG + LLM.
     
     Workflow:
-    1. Recherche de contexte pertinent dans Qdrant
-    2. Construction du prompt avec le contexte
-    3. Génération du devis via OpenAI
-    4. Parsing et validation du résultat
+    1. Recherche Perplexity sur l'entreprise du lead
+    2. Recherche de contexte pertinent dans Qdrant (tarifs, services)
+    3. Construction du prompt avec les deux contextes
+    4. Génération du devis via OpenAI
+    5. Parsing et validation du résultat
     """
     
     def __init__(self):
@@ -47,11 +49,18 @@ class DevisGenerator:
         """
         logger.info(f"Génération du devis pour {lead.full_name} ({lead.service_type.value})")
         
-        # 1. Recherche RAG du contexte pertinent
-        context = self._get_rag_context(lead)
-        logger.debug(f"Contexte RAG: {len(context)} caractères")
+        # 1. [NOUVEAU] Recherche Perplexity sur l'entreprise
+        company_research = self._research_company(lead)
+        company_context = company_research.to_context() if company_research.success else ""
         
-        # 2. Construction des prompts
+        # 2. Recherche RAG du contexte pertinent (tarifs, services)
+        rag_context = self._get_rag_context(lead)
+        logger.debug(f"Contexte RAG: {len(rag_context)} caractères")
+        
+        # 3. Combinaison des contextes
+        full_context = self._combine_contexts(company_context, rag_context)
+        
+        # 4. Construction des prompts
         system_prompt = get_system_prompt(lead.service_type)
         user_prompt = build_user_prompt(
             lead_name=lead.full_name,
@@ -60,34 +69,66 @@ class DevisGenerator:
             project_description=lead.project_description,
             budget_range=lead.budget_range,
             service_type=lead.service_type,
+            company_research=company_context,  # Nouveau paramètre
         )
         
-        # 3. Génération via LLM avec mode JSON pour forcer une sortie structurée
+        # 5. Génération via LLM avec mode JSON pour forcer une sortie structurée
         logger.info("Appel OpenAI pour génération du devis (mode JSON activé)...")
         response = self.openai.generate_completion(
             prompt=user_prompt,
             system_prompt=system_prompt,
-            context=context,
+            context=full_context,
             max_tokens=2500,
             temperature=0.5,  # Réduit pour plus de cohérence structurelle
             json_mode=True,   # Force le LLM à retourner du JSON valide
         )
         
-        # 4. Parsing du JSON avec validation
+        # 6. Parsing du JSON avec validation
         devis_data = self._parse_response(response, lead)
         
-        # Log du contexte RAG utilisé pour debugging
-        if context:
-            logger.info(f"📚 Contexte RAG utilisé: {len(context)} caractères")
+        # Log des contextes utilisés pour debugging
+        if company_context:
+            logger.info(f"🏢 Contexte entreprise (Perplexity): {len(company_context)} caractères")
         else:
-            logger.warning("⚠️ Aucun contexte RAG trouvé - devis basé uniquement sur le prompt")
+            logger.warning("⚠️ Pas d'infos entreprise trouvées")
+        if rag_context:
+            logger.info(f"📚 Contexte RAG (Qdrant): {len(rag_context)} caractères")
+        else:
+            logger.warning("⚠️ Aucun contexte RAG trouvé")
         
-        # 5. Création du DevisContent
+        # 7. Création du DevisContent
         devis = self._build_devis_content(lead, devis_data)
         
         logger.info(f"✅ Devis généré: {devis.reference} - Total: {devis.total_ttc:.2f}€ TTC")
         
         return devis
+    
+    def _research_company(self, lead: LeadRequest):
+        """
+        Recherche des informations sur l'entreprise du lead via Perplexity.
+        """
+        if not lead.company:
+            logger.debug("Pas d'entreprise renseignée pour ce lead")
+            from src.integrations.perplexity_service import CompanyResearch
+            return CompanyResearch(company_name="", success=False)
+        
+        return research_company_cached(lead.company, lead.website)
+    
+    def _combine_contexts(self, company_context: str, rag_context: str) -> str:
+        """
+        Combine les contextes Perplexity et RAG pour le LLM.
+        """
+        parts = []
+        
+        if company_context:
+            parts.append("=== INFORMATIONS SUR L'ENTREPRISE DU PROSPECT ===")
+            parts.append(company_context)
+        
+        if rag_context:
+            parts.append("\n=== TARIFS ET SERVICES NANA-INTELLIGENCE ===")
+            parts.append(rag_context)
+        
+        return "\n\n".join(parts)
     
     def _get_rag_context(self, lead: LeadRequest) -> str:
         """Récupère le contexte pertinent depuis Qdrant."""

@@ -1,0 +1,12 @@
+{
+    "first_name": "Marie",
+    "last_name": "Dupont",
+    "email": "marie.dupont@doctolib.fr",
+    "company": "Doctolib",
+    "website": "https://www.doctolib.fr",
+    "service_type": "automation_ia",
+    "project_description": "We want to automate our customer support with AI chatbots and integrate our CRM with intelligent workflows",
+    "budget_range": "10k+",
+    "consent": true,
+    "tally_response_id": "test-doctolib-001"
+}

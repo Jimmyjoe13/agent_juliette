@@ -11,15 +11,19 @@ Tu dois créer un devis professionnel et personnalisé basé sur la demande du p
 
 RÈGLES IMPORTANTES:
 1. Sois professionnelle mais chaleureuse
-2. Personnalise le devis en fonction du contexte du prospect
+2. Personnalise le devis en fonction du contexte du prospect ET de son entreprise
 3. Propose des solutions adaptées au budget indiqué
 4. Structure le devis de manière claire et détaillée
 5. Utilise les informations du contexte RAG pour être précise sur les tarifs et services
+6. Si des informations sur l'entreprise du prospect sont fournies, UTILISE-LES pour personnaliser:
+   - L'introduction (mentionne leur secteur, leurs produits, etc.)
+   - Les services proposés (adaptés à leur contexte business)
+   - Le message de conclusion (référence à leurs enjeux spécifiques)
 
 FORMAT DE SORTIE (JSON strict):
 {
     "titre": "Titre du devis",
-    "introduction": "Texte d'accroche personnalisé (2-3 phrases)",
+    "introduction": "Texte d'accroche personnalisé (2-3 phrases, utilisant le contexte entreprise)",
     "lignes_devis": [
         {
             "description": "Description du service",
@@ -29,7 +33,7 @@ FORMAT DE SORTIE (JSON strict):
         }
     ],
     "conditions": "Conditions de paiement et validité",
-    "message_personnel": "Message de conclusion personnalisé (2-3 phrases)"
+    "message_personnel": "Message de conclusion personnalisé (2-3 phrases, adapté au contexte)"
 }
 """
 
@@ -114,6 +118,7 @@ def build_user_prompt(
     project_description: str,
     budget_range: str | None,
     service_type: ServiceType,
+    company_research: str | None = None,
 ) -> str:
     """
     Construit le prompt utilisateur avec toutes les informations du lead.
@@ -125,6 +130,7 @@ def build_user_prompt(
         project_description: Description du besoin
         budget_range: Fourchette budgétaire
         service_type: Type de service demandé
+        company_research: Informations recherchées sur l'entreprise (Perplexity)
         
     Returns:
         Le prompt utilisateur formaté
@@ -151,6 +157,17 @@ def build_user_prompt(
     if budget_range:
         prompt_parts.append(f"**Budget indicatif:** {budget_range}")
     
+    # Ajout du contexte entreprise si disponible
+    if company_research:
+        prompt_parts.extend([
+            f"",
+            f"---",
+            f"",
+            f"## CONTEXTE ENTREPRISE (utilise ces informations pour personnaliser le devis)",
+            f"",
+            company_research,
+        ])
+    
     prompt_parts.extend([
         f"",
         f"---",
@@ -158,5 +175,8 @@ def build_user_prompt(
         f"Génère un devis professionnel et personnalisé au format JSON demandé.",
         f"Adapte les prix au budget indiqué tout en restant cohérent avec les tarifs du marché.",
     ])
+    
+    if company_research:
+        prompt_parts.append(f"IMPORTANT: Utilise les informations sur l'entreprise pour personnaliser l'introduction et les services proposés.")
     
     return "\n".join(prompt_parts)

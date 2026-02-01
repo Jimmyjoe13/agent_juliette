@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     gmail_token_path: str = "./token.json"
     gmail_sender_email: str
 
+    # Perplexity (recherche entreprise)
+    perplexity_api_key: str | None = None
+    perplexity_model: str = "sonar"  # sonar (rapide) ou sonar-pro (approfondi)
+
     # Application
     app_env: str = "development"
     log_level: str = "INFO"

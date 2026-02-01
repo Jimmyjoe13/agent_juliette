@@ -170,7 +170,18 @@ class OpenAIService:
                 raise
         
         content = response.choices[0].message.content
-        logger.debug(f"Completion générée: {len(content)} caractères")
+        
+        # Gestion des réponses vides ou None
+        if content is None:
+            logger.warning(f"⚠️ Le modèle {self.model} a retourné None")
+            logger.warning(f"   Finish reason: {response.choices[0].finish_reason}")
+            content = ""
+        
+        if len(content) == 0:
+            logger.warning(f"⚠️ Le modèle {self.model} a retourné une réponse vide")
+            logger.warning(f"   Finish reason: {response.choices[0].finish_reason}")
+        else:
+            logger.debug(f"Completion générée: {len(content)} caractères")
         
         return content
 
