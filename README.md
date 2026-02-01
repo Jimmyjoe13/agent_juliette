@@ -111,21 +111,58 @@ Dans ton formulaire Tally :
 
 ## 📧 Gmail en Production
 
-### Option A : Token pré-généré (recommandé pour démarrer)
+Pour que l'agent puisse créer des brouillons Gmail sur Render, tu dois passer le contenu des fichiers `credentials.json` et `token.json` via des variables d'environnement.
 
-1. Génère le token en local : `uv run python scripts/init_gmail_auth.py`
-2. Encode le contenu de `token.json` en base64
-3. Ajoute une variable d'env `GMAIL_TOKEN_BASE64` sur Render
-4. Modifie le code pour décoder et créer le fichier au démarrage
+### Étape 1 : Générer le token en local
 
-### Option B : Compte de service Google Workspace
+```bash
+# Exécute le script d'authentification
+uv run python scripts/init_gmail_auth.py
 
-Si tu as Google Workspace, utilise un compte de service avec délégation de domaine.
+# Une fenêtre de navigateur s'ouvre pour autoriser l'accès
+# Le fichier token.json est créé automatiquement
+```
 
-### Option C : Désactiver Gmail
+### Étape 2 : Récupérer le contenu JSON
+
+Ouvre les deux fichiers et copie leur contenu :
+
+```bash
+# Afficher le contenu de credentials.json
+cat credentials.json
+
+# Afficher le contenu de token.json
+cat token.json
+```
+
+### Étape 3 : Ajouter les variables sur Render
+
+Dans **Environment** → **Environment Variables**, ajoute :
+
+| Variable                 | Valeur                                                 |
+| ------------------------ | ------------------------------------------------------ |
+| `GMAIL_CREDENTIALS_JSON` | Copie le contenu **complet** de `credentials.json`     |
+| `GMAIL_TOKEN_JSON`       | Copie le contenu **complet** de `token.json`           |
+| `GMAIL_SENDER_EMAIL`     | Ton adresse Gmail (ex: `contact@nana-intelligence.fr`) |
+
+> ⚠️ **Important** : Colle le JSON tel quel, sans l'encoder en base64.
+
+### Exemple de valeur pour GMAIL_CREDENTIALS_JSON
+
+```json
+{"installed":{"client_id":"xxx.apps.googleusercontent.com","project_id":"xxx","auth_uri":"https://accounts.google.com/o/oauth2/auth",...}}
+```
+
+### Exemple de valeur pour GMAIL_TOKEN_JSON
+
+```json
+{"token":"ya29.xxx","refresh_token":"1//xxx","token_uri":"https://oauth2.googleapis.com/token",...}
+```
+
+### Option alternative : Sans Gmail
 
 Le service fonctionne sans Gmail - les PDFs sont générés mais pas envoyés par email.
-Tu peux les récupérer via l'API ou les stocker sur un service cloud (S3, etc.).
+Tu peux récupérer les PDFs via les logs ou ajouter un stockage cloud (S3, etc.).
 
 ---
 
@@ -170,9 +207,11 @@ uv run uvicorn main:app --reload
 | `QDRANT_URL`             | URL du cluster Qdrant Cloud            | ✅          |
 | `QDRANT_API_KEY`         | Clé API Qdrant                         | ✅          |
 | `QDRANT_COLLECTION_NAME` | Nom de la collection                   | ✅          |
-| `GMAIL_CREDENTIALS_PATH` | Chemin vers credentials.json           | ❌          |
-| `GMAIL_TOKEN_PATH`       | Chemin vers token.json                 | ❌          |
+| `GMAIL_CREDENTIALS_JSON` | Contenu JSON de credentials.json       | ❌ (prod)   |
+| `GMAIL_TOKEN_JSON`       | Contenu JSON de token.json             | ❌ (prod)   |
 | `GMAIL_SENDER_EMAIL`     | Email expéditeur                       | ❌          |
+| `GMAIL_CREDENTIALS_PATH` | Chemin vers credentials.json (local)   | ❌          |
+| `GMAIL_TOKEN_PATH`       | Chemin vers token.json (local)         | ❌          |
 | `APP_ENV`                | Environnement (development/production) | ❌          |
 | `LOG_LEVEL`              | Niveau de log (DEBUG/INFO/WARNING)     | ❌          |
 

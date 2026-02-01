@@ -30,6 +30,10 @@ class GmailService:
     """
     Service pour interagir avec l'API Gmail.
     Gère l'authentification OAuth2 et la création de brouillons.
+    
+    En production (Render), les credentials peuvent être passés via:
+    - GMAIL_CREDENTIALS_JSON: Contenu JSON du fichier credentials.json
+    - GMAIL_TOKEN_JSON: Contenu JSON du fichier token.json
     """
     
     def __init__(self):
@@ -40,7 +44,41 @@ class GmailService:
         self.service = None
         self._authenticated = False
         
+        # En production, créer les fichiers depuis les variables d'environnement
+        self._setup_credentials_from_env()
+        
         logger.info(f"GmailService initialisé (sender: {self.sender_email})")
+    
+    def _setup_credentials_from_env(self):
+        """
+        Crée les fichiers credentials.json et token.json depuis les variables d'env.
+        Utilisé en production sur Render.
+        """
+        import json
+        
+        # Credentials OAuth2
+        credentials_json = os.environ.get("GMAIL_CREDENTIALS_JSON")
+        if credentials_json and not self.credentials_path.exists():
+            try:
+                # Valider que c'est du JSON valide
+                json.loads(credentials_json)
+                with open(self.credentials_path, 'w') as f:
+                    f.write(credentials_json)
+                logger.info("✅ credentials.json créé depuis variable d'environnement")
+            except json.JSONDecodeError as e:
+                logger.error(f"GMAIL_CREDENTIALS_JSON n'est pas du JSON valide: {e}")
+        
+        # Token OAuth2 (pré-généré en local)
+        token_json = os.environ.get("GMAIL_TOKEN_JSON")
+        if token_json and not self.token_path.exists():
+            try:
+                # Valider que c'est du JSON valide
+                json.loads(token_json)
+                with open(self.token_path, 'w') as f:
+                    f.write(token_json)
+                logger.info("✅ token.json créé depuis variable d'environnement")
+            except json.JSONDecodeError as e:
+                logger.error(f"GMAIL_TOKEN_JSON n'est pas du JSON valide: {e}")
     
     def _authenticate(self) -> bool:
         """
@@ -68,6 +106,9 @@ class GmailService:
                 try:
                     creds.refresh(Request())
                     logger.info("Token rafraîchi avec succès")
+                    # Sauvegarder le token rafraîchi
+                    with open(self.token_path, 'w') as token:
+                        token.write(creds.to_json())
                 except Exception as e:
                     logger.warning(f"Erreur rafraîchissement token: {e}")
                     creds = None
@@ -75,6 +116,15 @@ class GmailService:
             if not creds:
                 if not self.credentials_path.exists():
                     logger.error(f"Fichier credentials non trouvé: {self.credentials_path}")
+                    return False
+                
+                # En production, on ne peut pas lancer un navigateur
+                # Le token doit être pré-généré
+                if os.environ.get("APP_ENV") == "production":
+                    logger.error(
+                        "Token Gmail invalide en production. "
+                        "Régénérez le token en local et mettez à jour GMAIL_TOKEN_JSON"
+                    )
                     return False
                 
                 # Lancer le flux OAuth2 (nécessite interaction utilisateur)

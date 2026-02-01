@@ -27,13 +27,20 @@ services:
       - key: QDRANT_COLLECTION_NAME
         value: nana_intelligence_knowledge
 
-      # Gmail (optionnel)
+      # Gmail OAuth2 (copier le contenu JSON des fichiers)
+      # Depuis credentials.json - ouvrir le fichier et copier tout son contenu
+      - key: GMAIL_CREDENTIALS_JSON
+        sync: false
+      # Depuis token.json - ouvrir le fichier et copier tout son contenu
+      - key: GMAIL_TOKEN_JSON
+        sync: false
+      - key: GMAIL_SENDER_EMAIL
+        sync: false
+      # Chemins des fichiers (ne pas modifier)
       - key: GMAIL_CREDENTIALS_PATH
         value: ./credentials.json
       - key: GMAIL_TOKEN_PATH
         value: ./token.json
-      - key: GMAIL_SENDER_EMAIL
-        sync: false
 
       # Application
       - key: APP_ENV
