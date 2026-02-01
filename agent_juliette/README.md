@@ -29,12 +29,107 @@ agent_juliette/
 │       ├── openai_service.py  # Embeddings & completions
 │       ├── qdrant_service.py  # Recherche vectorielle
 │       └── gmail_service.py   # API Gmail OAuth2
+├── scripts/                   # Scripts utilitaires
 ├── tests/                     # Tests unitaires
-├── generated_pdfs/            # PDFs générés
-└── .env                       # Configuration locale
+├── generated_pdfs/            # PDFs générés (ignoré par git)
+└── .env                       # Configuration locale (ignoré par git)
 ```
 
-## 🚀 Installation
+---
+
+## 🚀 Déploiement sur Render
+
+### Prérequis
+
+1. Un compte [Render](https://render.com)
+2. Les clés API configurées :
+   - OpenAI API Key
+   - Qdrant Cloud URL + API Key
+   - Gmail OAuth2 (optionnel en production)
+
+### Étape 1 : Créer un Web Service sur Render
+
+1. Va sur [Render Dashboard](https://dashboard.render.com/)
+2. Clique sur **New +** → **Web Service**
+3. Connecte ton dépôt GitHub : `Jimmyjoe13/agent_juliette`
+4. Configure le service :
+
+| Paramètre          | Valeur                                                |
+| ------------------ | ----------------------------------------------------- |
+| **Name**           | `agent-juliette`                                      |
+| **Region**         | `Frankfurt (EU Central)`                              |
+| **Branch**         | `main`                                                |
+| **Root Directory** | `agent_juliette`                                      |
+| **Runtime**        | `Python 3`                                            |
+| **Build Command**  | `pip install uv && uv sync`                           |
+| **Start Command**  | `uv run uvicorn main:app --host 0.0.0.0 --port $PORT` |
+| **Instance Type**  | `Starter` (ou supérieur)                              |
+
+### Étape 2 : Configurer les Variables d'Environnement
+
+Dans l'onglet **Environment** de Render, ajoute les variables :
+
+```env
+# OpenAI (obligatoire)
+OPENAI_API_KEY=sk-proj-xxx
+OPENAI_MODEL=gpt-5-nano
+
+# Qdrant Cloud (obligatoire)
+QDRANT_URL=https://xxx.cloud.qdrant.io
+QDRANT_API_KEY=xxx
+QDRANT_COLLECTION_NAME=nana_intelligence_knowledge
+
+# Gmail (optionnel - voir section Gmail en production)
+GMAIL_CREDENTIALS_PATH=./credentials.json
+GMAIL_TOKEN_PATH=./token.json
+GMAIL_SENDER_EMAIL=contact@nana-intelligence.fr
+
+# Application
+APP_ENV=production
+LOG_LEVEL=INFO
+```
+
+### Étape 3 : Déployer
+
+Clique sur **Create Web Service**. Render va :
+
+1. Cloner le dépôt
+2. Installer les dépendances
+3. Lancer le serveur
+
+Tu obtiendras une URL comme : `https://agent-juliette.onrender.com`
+
+### Étape 4 : Configurer Tally
+
+Dans ton formulaire Tally :
+
+1. Va dans **Integrations** → **Webhooks**
+2. Ajoute l'URL : `https://agent-juliette.onrender.com/webhook/tally`
+3. Méthode : `POST`
+
+---
+
+## 📧 Gmail en Production
+
+### Option A : Token pré-généré (recommandé pour démarrer)
+
+1. Génère le token en local : `uv run python scripts/init_gmail_auth.py`
+2. Encode le contenu de `token.json` en base64
+3. Ajoute une variable d'env `GMAIL_TOKEN_BASE64` sur Render
+4. Modifie le code pour décoder et créer le fichier au démarrage
+
+### Option B : Compte de service Google Workspace
+
+Si tu as Google Workspace, utilise un compte de service avec délégation de domaine.
+
+### Option C : Désactiver Gmail
+
+Le service fonctionne sans Gmail - les PDFs sont générés mais pas envoyés par email.
+Tu peux les récupérer via l'API ou les stocker sur un service cloud (S3, etc.).
+
+---
+
+## 🔧 Installation Locale
 
 ### Prérequis
 
@@ -45,7 +140,8 @@ agent_juliette/
 
 ```bash
 # Cloner le projet
-cd agent_juliette
+git clone https://github.com/Jimmyjoe13/agent_juliette.git
+cd agent_juliette/agent_juliette
 
 # Installer les dépendances
 uv sync
@@ -55,47 +151,32 @@ cp .env.example .env
 # Éditer .env avec vos clés API
 ```
 
-## ⚙️ Configuration
-
-Créez un fichier `.env` avec les variables suivantes :
-
-```env
-# OpenAI
-OPENAI_API_KEY=sk-proj-...
-OPENAI_MODEL=gpt-5-nano  # ou gpt-4o
-
-# Qdrant - Base vectorielle
-QDRANT_URL=https://xxx.cloud.qdrant.io
-QDRANT_API_KEY=xxx
-QDRANT_COLLECTION_NAME=nana_intelligence_knowledge
-
-# Gmail OAuth2 (optionnel)
-GMAIL_CREDENTIALS_PATH=./credentials.json
-GMAIL_TOKEN_PATH=./token.json
-GMAIL_SENDER_EMAIL=votre-email@gmail.com
-
-# Application
-APP_ENV=development
-LOG_LEVEL=INFO
-```
-
-### Configuration Gmail
-
-1. Créez un projet sur [Google Cloud Console](https://console.cloud.google.com/)
-2. Activez l'API Gmail
-3. Créez des identifiants OAuth2 (type "Application de bureau")
-4. Téléchargez le fichier `credentials.json`
-5. Placez-le à la racine du projet
-
-## 🏃 Lancer l'application
+### Lancer en développement
 
 ```bash
-# Développement avec hot-reload
 uv run uvicorn main:app --reload
-
-# Production
-uv run uvicorn main:app --host 0.0.0.0 --port 8000
 ```
+
+---
+
+## ⚙️ Configuration
+
+### Variables d'environnement
+
+| Variable                 | Description                            | Obligatoire |
+| ------------------------ | -------------------------------------- | ----------- |
+| `OPENAI_API_KEY`         | Clé API OpenAI                         | ✅          |
+| `OPENAI_MODEL`           | Modèle à utiliser (gpt-5-nano, gpt-4o) | ✅          |
+| `QDRANT_URL`             | URL du cluster Qdrant Cloud            | ✅          |
+| `QDRANT_API_KEY`         | Clé API Qdrant                         | ✅          |
+| `QDRANT_COLLECTION_NAME` | Nom de la collection                   | ✅          |
+| `GMAIL_CREDENTIALS_PATH` | Chemin vers credentials.json           | ❌          |
+| `GMAIL_TOKEN_PATH`       | Chemin vers token.json                 | ❌          |
+| `GMAIL_SENDER_EMAIL`     | Email expéditeur                       | ❌          |
+| `APP_ENV`                | Environnement (development/production) | ❌          |
+| `LOG_LEVEL`              | Niveau de log (DEBUG/INFO/WARNING)     | ❌          |
+
+---
 
 ## 🔌 Endpoints API
 
@@ -103,6 +184,9 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000
 
 ```http
 GET /health
+
+# Réponse
+{"status": "healthy", "agent": "juliette"}
 ```
 
 ### Webhook Tally
@@ -157,25 +241,37 @@ Content-Type: application/json
 # Pareil que /agent/test-devis mais génère aussi le PDF
 ```
 
+---
+
 ## 📨 Configuration Tally
 
 Dans Tally, configurez un webhook vers :
 
 ```
-https://votre-domaine.com/webhook/tally
+https://agent-juliette.onrender.com/webhook/tally
 ```
 
 ### Champs du formulaire attendus :
 
-- **Prénom** (texte)
-- **Nom** (texte)
-- **Email Pro** (email)
-- **Nom de votre entreprise** (texte, optionnel)
-- **Site web** (url, optionnel)
-- **Type de service** (sélection : Mass Mailing, Automation & IA, SEO & Growth)
-- **Description du besoin** (texte long)
-- **Budget indicatif** (sélection, optionnel)
-- **Consentement RGPD** (checkbox)
+| Label du champ    | Type       | Obligatoire |
+| ----------------- | ---------- | ----------- |
+| `Prénom`          | Texte      | ✅          |
+| `Nom`             | Texte      | ✅          |
+| `Email Pro`       | Email      | ✅          |
+| `Entreprise`      | Texte      | ❌          |
+| `Site Web`        | URL        | ❌          |
+| `Type de service` | Sélection  | ✅          |
+| `Votre Besoin`    | Texte long | ✅          |
+| `Budget estimé`   | Sélection  | ❌          |
+| `Consentement`    | Checkbox   | ❌          |
+
+### Options pour "Type de service" :
+
+- Mass Mailing & Lead Gen
+- Automatisation & IA
+- SEO & Growth Hacking
+
+---
 
 ## 🧪 Tests
 
@@ -190,6 +286,8 @@ uv run pytest --cov=src
 uv run pytest tests/test_tally.py -v
 ```
 
+---
+
 ## 📊 Types de services
 
 | Service         | Description                                    |
@@ -198,27 +296,24 @@ uv run pytest tests/test_tally.py -v
 | `automation_ia` | Workflows n8n/Make, agents IA, chatbots        |
 | `seo_growth`    | Audit SEO, contenu optimisé, backlinks         |
 
+---
+
 ## 🔄 Flux de traitement
 
-```mermaid
-sequenceDiagram
-    participant Tally
-    participant Webhook
-    participant RAG
-    participant LLM
-    participant PDF
-    participant Gmail
-
-    Tally->>Webhook: Nouveau lead
-    Webhook->>RAG: Recherche contexte
-    RAG-->>Webhook: Documents pertinents
-    Webhook->>LLM: Génère devis
-    LLM-->>Webhook: Contenu JSON
-    Webhook->>PDF: Génère document
-    PDF-->>Webhook: Chemin fichier
-    Webhook->>Gmail: Crée brouillon
-    Gmail-->>Webhook: ID brouillon
 ```
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│    Tally    │───▶│  Webhook    │───▶│     RAG     │
+│  Formulaire │    │  /webhook/  │    │   Qdrant    │
+└─────────────┘    │   tally     │    └──────┬──────┘
+                   └─────────────┘           │
+                                             ▼
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│    Gmail    │◀───│     PDF     │◀───│   OpenAI    │
+│  Brouillon  │    │  ReportLab  │    │  GPT-5/4o   │
+└─────────────┘    └─────────────┘    └─────────────┘
+```
+
+---
 
 ## 📝 Exemple de réponse webhook
 
@@ -237,6 +332,8 @@ sequenceDiagram
 }
 ```
 
+---
+
 ## 🛠️ Développement
 
 ### Linting
@@ -252,6 +349,30 @@ uv run ruff format .
 - `fix:` Correction de bug
 - `docs:` Documentation
 - `refactor:` Refactoring
+
+---
+
+## 🐛 Troubleshooting
+
+### Erreur "Collection not found" sur Qdrant
+
+Vérifie que la collection existe et que le nom correspond à `QDRANT_COLLECTION_NAME`.
+
+### Erreur OpenAI "max_tokens not supported"
+
+Les nouveaux modèles (gpt-5, o1, o3) utilisent `max_completion_tokens`. Le code gère automatiquement ce cas.
+
+### Gmail "Invalid credentials"
+
+Supprime `token.json` et réauthentifie avec `uv run python scripts/init_gmail_auth.py`.
+
+### Webhook Tally ne fonctionne pas
+
+1. Vérifie l'URL du webhook dans Tally
+2. Vérifie les labels des champs (doivent correspondre exactement)
+3. Consulte les logs sur Render
+
+---
 
 ## 📄 Licence
 
