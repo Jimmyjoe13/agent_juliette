@@ -41,6 +41,16 @@ app = FastAPI(
 )
 
 
+@app.get("/")
+@app.head("/")
+async def root() -> dict[str, str]:
+    """
+    Endpoint racine - redirige vers le health check.
+    Supporte GET et HEAD pour les services de monitoring (UptimeRobot, etc.)
+    """
+    return {"status": "healthy", "agent": "juliette", "docs": "/docs"}
+
+
 @app.get("/health")
 @app.head("/health")
 async def health_check() -> dict[str, str]:
