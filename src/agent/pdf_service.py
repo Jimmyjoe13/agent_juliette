@@ -32,13 +32,18 @@ logger = logging.getLogger(__name__)
 PDF_OUTPUT_DIR = Path("generated_pdfs")
 PDF_OUTPUT_DIR.mkdir(exist_ok=True)
 
-# Couleurs nana-intelligence (personnalisables)
+# Chemin du logo
+LOGO_PATH = Path(r"C:\Users\jimmy\Projet\agent_juliette\img\logo-nana.png")
+
+# Couleurs nana-intelligence
 COLORS = {
     "primary": colors.HexColor("#6366F1"),      # Indigo
     "secondary": colors.HexColor("#8B5CF6"),    # Violet
-    "dark": colors.HexColor("#1F2937"),         # Gris foncé
-    "light": colors.HexColor("#F3F4F6"),        # Gris clair
+    "dark": colors.HexColor("#111827"),         # Gris très foncé
+    "medium": colors.HexColor("#4B5563"),       # Gris moyen
+    "light": colors.HexColor("#F9FAFB"),        # Gris ultra clair
     "accent": colors.HexColor("#10B981"),       # Vert émeraude
+    "border": colors.HexColor("#E5E7EB"),       # Bordures
 }
 
 # Informations de l'entreprise
@@ -47,8 +52,8 @@ COMPANY_INFO = {
     "tagline": "Automatisation & IA pour TPE/PME",
     "address": "France",
     "email": "contact@nana-intelligence.fr",
-    "website": "https://nana-intelligence.fr",
-    "siret": "",  # À compléter si nécessaire
+    "website": "nana-intelligence.fr",
+    "siret": "",
 }
 
 
@@ -69,317 +74,361 @@ class PDFService:
         self.styles.add(ParagraphStyle(
             name='DevisTitle',
             parent=self.styles['Heading1'],
-            fontSize=24,
+            fontSize=28,
             textColor=COLORS["primary"],
-            spaceAfter=20,
-            alignment=TA_LEFT,
-        ))
-        
-        # Sous-titre
-        self.styles.add(ParagraphStyle(
-            name='DevisSubtitle',
-            parent=self.styles['Normal'],
-            fontSize=12,
-            textColor=COLORS["dark"],
-            spaceAfter=10,
-        ))
-        
-        # Nom du client
-        self.styles.add(ParagraphStyle(
-            name='ClientName',
-            parent=self.styles['Heading2'],
-            fontSize=14,
-            textColor=COLORS["dark"],
-            spaceBefore=10,
             spaceAfter=5,
+            alignment=TA_LEFT,
+            fontName='Helvetica-Bold',
         ))
         
-        # Corps de texte (renommé pour éviter conflit)
+        # Sous-titre (Référence)
         self.styles.add(ParagraphStyle(
-            name='DevisBody',
+            name='DevisRef',
             parent=self.styles['Normal'],
-            fontSize=11,
-            textColor=COLORS["dark"],
-            spaceAfter=10,
-            leading=16,
-        ))
-        
-        # Texte petit (renommé pour éviter conflit)
-        self.styles.add(ParagraphStyle(
-            name='DevisSmall',
-            parent=self.styles['Normal'],
-            fontSize=9,
-            textColor=colors.grey,
+            fontSize=10,
+            textColor=COLORS["medium"],
+            alignment=TA_RIGHT,
+            fontName='Helvetica-Bold',
         ))
         
         # En-tête de section
         self.styles.add(ParagraphStyle(
             name='SectionHeader',
             parent=self.styles['Heading2'],
-            fontSize=14,
+            fontSize=11,
             textColor=COLORS["primary"],
-            spaceBefore=20,
-            spaceAfter=10,
+            spaceBefore=15,
+            spaceAfter=8,
+            fontName='Helvetica-Bold',
+            textTransform='uppercase',
+        ))
+        
+        # Corps de texte standard
+        self.styles.add(ParagraphStyle(
+            name='DevisBody',
+            parent=self.styles['Normal'],
+            fontSize=10.5,
+            textColor=COLORS["dark"],
+            leading=15,
+            spaceAfter=8,
+        ))
+        
+        # Détails des prestations (petit texte)
+        self.styles.add(ParagraphStyle(
+            name='ItemDetails',
+            parent=self.styles['Normal'],
+            fontSize=9,
+            textColor=COLORS["medium"],
+            leading=12,
+            leftIndent=0,
+        ))
+        
+        # Styles pour le tableau
+        self.styles.add(ParagraphStyle(
+            name='TableHeader',
+            parent=self.styles['Normal'],
+            fontSize=10,
+            textColor=colors.white,
+            fontName='Helvetica-Bold',
+            alignment=TA_CENTER,
+        ))
+        
+        self.styles.add(ParagraphStyle(
+            name='TableCell',
+            parent=self.styles['Normal'],
+            fontSize=10,
+            textColor=COLORS["dark"],
+            alignment=TA_LEFT,
         ))
     
     def generate(self, devis: DevisContent) -> str:
         """
         Génère un PDF à partir du contenu du devis.
-        
-        Args:
-            devis: Le contenu structuré du devis
-            
-        Returns:
-            Le chemin absolu vers le fichier PDF généré
         """
-        # Nom du fichier
         filename = f"{devis.reference}.pdf"
         filepath = PDF_OUTPUT_DIR / filename
         
-        # Création du document
         doc = SimpleDocTemplate(
             str(filepath),
             pagesize=A4,
-            rightMargin=2*cm,
-            leftMargin=2*cm,
-            topMargin=2*cm,
-            bottomMargin=2*cm,
+            rightMargin=1.5*cm,
+            leftMargin=1.5*cm,
+            topMargin=1.5*cm,
+            bottomMargin=1.5*cm,
         )
         
-        # Construction du contenu
         story = []
         
-        # En-tête avec infos entreprise
+        # 1. En-tête (Logo + Infos Entreprise + Ref)
         story.extend(self._build_header(devis))
         
-        # Informations client
-        story.extend(self._build_client_info(devis))
+        # 2. Client & Infos Devis
+        story.extend(self._build_info_block(devis))
         
-        # Introduction personnalisée
+        # 3. Objet & Introduction
         story.extend(self._build_introduction(devis))
         
-        # Tableau des prestations
+        # 4. Tableau des prestations
         story.extend(self._build_items_table(devis))
         
-        # Totaux
+        # 5. Totaux
         story.extend(self._build_totals(devis))
         
-        # Conditions
+        # 6. Conditions
         story.extend(self._build_conditions(devis))
         
-        # Pied de page
+        # 7. Signature (Espace pour signature client)
+        story.extend(self._build_signature_block())
+        
+        # 8. Footer (Pied de page automatique)
+        # Note: ReportLab supporte les canvas pour les footers répétitifs, 
+        # ici on le met à la fin pour rester simple.
         story.extend(self._build_footer())
         
-        # Génération du PDF
+        # Génération
         doc.build(story)
         
         logger.info(f"✅ PDF généré: {filepath}")
-        
         return str(filepath.absolute())
     
     def _build_header(self, devis: DevisContent) -> list:
-        """Construit l'en-tête du document."""
+        """Construit l'en-tête avec logo et référence."""
         elements = []
         
-        # Tableau en-tête avec logo/nom et référence
-        header_data = [
-            [
-                Paragraph(f"<b>{COMPANY_INFO['name']}</b>", self.styles['DevisTitle']),
-                Paragraph(f"<b>DEVIS</b><br/>{devis.reference}", 
-                         ParagraphStyle('ref', fontSize=12, alignment=TA_RIGHT, textColor=COLORS["dark"])),
-            ],
-            [
-                Paragraph(COMPANY_INFO['tagline'], self.styles['DevisSmall']),
-                Paragraph(f"Date: {devis.created_at.strftime('%d/%m/%Y')}<br/>Valide jusqu'au: {devis.valid_until.strftime('%d/%m/%Y')}", 
-                         ParagraphStyle('dates', fontSize=10, alignment=TA_RIGHT, textColor=colors.grey)),
-            ],
+        logo = None
+        if LOGO_PATH.exists():
+            try:
+                logo = Image(str(LOGO_PATH), width=4*cm, height=1.2*cm, kind='proportional')
+                logo.hAlign = 'LEFT'
+            except Exception as e:
+                logger.error(f"Erreur chargement logo: {e}")
+        
+        # Tableau en-tête
+        left_header = []
+        if logo:
+            left_header.append(logo)
+        else:
+            left_header.append(Paragraph(COMPANY_INFO['name'], self.styles['DevisTitle']))
+        
+        left_header.append(Paragraph(COMPANY_INFO['tagline'], 
+                                   ParagraphStyle('tag', fontSize=9, textColor=COLORS["medium"])))
+        
+        right_header = [
+            Paragraph(f"<b>DEVIS #{devis.reference}</b>", self.styles['DevisRef']),
+            Paragraph(f"Date: {devis.created_at.strftime('%d/%m/%Y')}", 
+                     ParagraphStyle('d', fontSize=10, alignment=TA_RIGHT, textColor=COLORS["medium"])),
+            Paragraph(f"Validité: {devis.valid_until.strftime('%d/%m/%Y')} (30j)", 
+                     ParagraphStyle('v', fontSize=10, alignment=TA_RIGHT, textColor=COLORS["medium"])),
         ]
         
-        header_table = Table(header_data, colWidths=[10*cm, 7*cm])
+        header_table = Table([
+            [left_header, right_header]
+        ], colWidths=[10*cm, 8*cm])
+        
         header_table.setStyle(TableStyle([
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ]))
         
         elements.append(header_table)
-        elements.append(Spacer(1, 0.5*cm))
-        
-        # Ligne de séparation
-        elements.append(HRFlowable(
-            width="100%",
-            thickness=2,
-            color=COLORS["primary"],
-            spaceAfter=20,
-        ))
+        elements.append(Spacer(1, 0.8*cm))
         
         return elements
     
-    def _build_client_info(self, devis: DevisContent) -> list:
-        """Construit la section informations client."""
+    def _build_info_block(self, devis: DevisContent) -> list:
+        """Bloc avec infos émetteur et destinataire."""
         elements = []
         
-        elements.append(Paragraph("DESTINATAIRE", self.styles['SectionHeader']))
+        # Émetteur
+        emitter = [
+            Paragraph("ÉMETTEUR", self.styles['SectionHeader']),
+            Paragraph(f"<b>{COMPANY_INFO['name']}</b>", self.styles['DevisBody']),
+            Paragraph(f"{COMPANY_INFO['email']}", ParagraphStyle('e', fontSize=10, textColor=COLORS["medium"])),
+            Paragraph(f"{COMPANY_INFO['website']}", ParagraphStyle('w', fontSize=10, textColor=COLORS["medium"])),
+        ]
         
-        client_info = f"<b>{devis.client_name}</b>"
+        # Destinataire
+        receiver_elements = [
+            Paragraph("DESTINATAIRE", self.styles['SectionHeader']),
+            Paragraph(f"<b>{devis.client_name}</b>", self.styles['DevisBody']),
+        ]
         if devis.client_company:
-            client_info += f"<br/>{devis.client_company}"
-        client_info += f"<br/>{devis.client_email}"
+            receiver_elements.append(Paragraph(devis.client_company, self.styles['DevisBody']))
         
-        elements.append(Paragraph(client_info, self.styles['DevisBody']))
-        elements.append(Spacer(1, 0.5*cm))
+        receiver_elements.append(Paragraph(f"{devis.client_email}", ParagraphStyle('e', fontSize=10, textColor=COLORS["medium"])))
+
+        info_table = Table([
+            [emitter, receiver_elements]
+        ], colWidths=[9*cm, 9*cm])
+        
+        info_table.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ]))
+        
+        elements.append(info_table)
+        elements.append(Spacer(1, 0.8*cm))
         
         return elements
     
     def _build_introduction(self, devis: DevisContent) -> list:
-        """Construit l'introduction personnalisée."""
+        """Section objet et intro."""
         elements = []
         
-        elements.append(Paragraph("OBJET", self.styles['SectionHeader']))
-        elements.append(Paragraph(f"<b>{devis.title}</b>", self.styles['DevisBody']))
-        elements.append(Spacer(1, 0.3*cm))
+        # Fond coloré pour l'objet
+        title_table = Table([[Paragraph(f"OBJET : {devis.title}", 
+                                      ParagraphStyle('t', fontSize=12, fontName='Helvetica-Bold', textColor=colors.white))]],
+                           colWidths=[18*cm])
+        title_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), COLORS["primary"]),
+            ('LEFTPADDING', (0, 0), (-1, -1), 15),
+            ('TOPPADDING', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+        ]))
         
-        # Introduction (peut contenir plusieurs paragraphes)
+        elements.append(title_table)
+        elements.append(Spacer(1, 0.5*cm))
+        
+        # Introduction
         for para in devis.introduction.split('\n\n'):
             if para.strip():
                 elements.append(Paragraph(para.strip(), self.styles['DevisBody']))
         
-        elements.append(Spacer(1, 0.5*cm))
-        
+        elements.append(Spacer(1, 0.6*cm))
         return elements
     
     def _build_items_table(self, devis: DevisContent) -> list:
-        """Construit le tableau des prestations."""
+        """Tableau détaillé avec livrables."""
         elements = []
         
         elements.append(Paragraph("DÉTAIL DES PRESTATIONS", self.styles['SectionHeader']))
         
-        # En-têtes du tableau
+        # En-têtes
         table_data = [
-            ['Description', 'Qté', 'Prix unitaire HT', 'Total HT'],
+            [
+                Paragraph("<b>Prestation & Livrables</b>", self.styles['TableHeader']),
+                Paragraph("<b>Qté</b>", self.styles['TableHeader']),
+                Paragraph("<b>P.U. HT</b>", self.styles['TableHeader']),
+                Paragraph("<b>Total HT</b>", self.styles['TableHeader'])
+            ]
         ]
         
-        # Lignes de prestations
+        # Lignes
         for item in devis.items:
+            # Cellule description + détails
+            desc_cell = [
+                Paragraph(f"<b>{item.description}</b>", self.styles['TableCell']),
+            ]
+            if item.details:
+                desc_cell.append(Spacer(1, 1*mm))
+                desc_cell.append(Paragraph(item.details, self.styles['ItemDetails']))
+            
             table_data.append([
-                Paragraph(item.description, self.styles['DevisBody']),
-                str(item.quantity),
-                f"{item.unit_price:,.2f} €".replace(",", " "),
-                f"{item.total:,.2f} €".replace(",", " "),
+                desc_cell,
+                Paragraph(str(item.quantity), ParagraphStyle('q', fontSize=10, alignment=TA_CENTER)),
+                Paragraph(f"{item.unit_price:,.2f} €".replace(",", " "), ParagraphStyle('p', fontSize=10, alignment=TA_RIGHT)),
+                Paragraph(f"{item.total:,.2f} €".replace(",", " "), ParagraphStyle('t', fontSize=10, alignment=TA_RIGHT, fontName='Helvetica-Bold')),
             ])
-        
-        # Création du tableau
-        col_widths = [9*cm, 1.5*cm, 3*cm, 3*cm]
-        items_table = Table(table_data, colWidths=col_widths)
+            
+        col_widths = [10.5*cm, 1.5*cm, 3*cm, 3*cm]
+        items_table = Table(table_data, colWidths=col_widths, repeatRows=1)
         
         items_table.setStyle(TableStyle([
-            # En-tête
+            # Header
             ('BACKGROUND', (0, 0), (-1, 0), COLORS["primary"]),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 11),
-            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
             ('VALIGN', (0, 0), (-1, 0), 'MIDDLE'),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('TOPPADDING', (0, 0), (-1, 0), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+            ('TOPPADDING', (0, 0), (-1, 0), 10),
             
             # Corps
             ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-            ('TEXTCOLOR', (0, 1), (-1, -1), COLORS["dark"]),
-            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 1), (-1, -1), 10),
-            ('ALIGN', (1, 1), (-1, -1), 'CENTER'),
-            ('ALIGN', (2, 1), (-1, -1), 'RIGHT'),
-            ('ALIGN', (3, 1), (-1, -1), 'RIGHT'),
-            ('VALIGN', (0, 1), (-1, -1), 'MIDDLE'),
-            ('BOTTOMPADDING', (0, 1), (-1, -1), 10),
-            ('TOPPADDING', (0, 1), (-1, -1), 10),
+            ('VALIGN', (0, 1), (-1, -1), 'TOP'),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 12),
+            ('TOPPADDING', (0, 1), (-1, -1), 12),
+            ('LINEBELOW', (0, 0), (-1, -1), 0.5, COLORS["border"]),
             
-            # Bordures
-            ('GRID', (0, 0), (-1, -1), 0.5, COLORS["light"]),
-            ('LINEBELOW', (0, 0), (-1, 0), 2, COLORS["primary"]),
+            # Bordures extérieures
+            ('BOX', (0, 0), (-1, -1), 1, COLORS["primary"]),
             
-            # Alternance de couleurs
+            # Alternance de gris très léger
             *[('BACKGROUND', (0, i), (-1, i), COLORS["light"]) 
               for i in range(2, len(table_data), 2)],
         ]))
         
         elements.append(items_table)
-        elements.append(Spacer(1, 0.5*cm))
+        elements.append(Spacer(1, 0.6*cm))
         
         return elements
     
     def _build_totals(self, devis: DevisContent) -> list:
-        """Construit le bloc des totaux."""
+        """Bloc totaux stylisé."""
         elements = []
         
-        # Tableau des totaux aligné à droite
         totals_data = [
-            ['Sous-total HT', f"{devis.subtotal:,.2f} €".replace(",", " ")],
-            ['TVA (20%)', f"{devis.tva:,.2f} €".replace(",", " ")],
-            ['TOTAL TTC', f"{devis.total_ttc:,.2f} €".replace(",", " ")],
+            [Paragraph("Sous-total HT", self.styles['DevisBody']), 
+             Paragraph(f"{devis.subtotal:,.2f} €".replace(",", " "), ParagraphStyle('v', alignment=TA_RIGHT, fontSize=11))],
+            [Paragraph("TVA (20%)", self.styles['DevisBody']), 
+             Paragraph(f"{devis.tva:,.2f} €".replace(",", " "), ParagraphStyle('v', alignment=TA_RIGHT, fontSize=11))],
+            [Paragraph("<b>TOTAL TTC</b>", ParagraphStyle('lb', fontSize=14, fontName='Helvetica-Bold', textColor=colors.white)), 
+             Paragraph(f"<b>{devis.total_ttc:,.2f} €</b>".replace(",", " "), ParagraphStyle('vb', alignment=TA_RIGHT, fontSize=16, fontName='Helvetica-Bold', textColor=colors.white))],
         ]
         
-        totals_table = Table(totals_data, colWidths=[4*cm, 3*cm])
+        totals_table = Table(totals_data, colWidths=[4*cm, 4*cm])
         totals_table.setStyle(TableStyle([
-            ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
             ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 11),
-            ('TEXTCOLOR', (0, 0), (-1, -1), COLORS["dark"]),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             
-            # Ligne Total TTC en gras avec fond
-            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, -1), (-1, -1), 13),
-            ('BACKGROUND', (0, -1), (-1, -1), COLORS["primary"]),
-            ('TEXTCOLOR', (0, -1), (-1, -1), colors.white),
-            ('TOPPADDING', (0, -1), (-1, -1), 10),
-            ('BOTTOMPADDING', (0, -1), (-1, -1), 10),
+            # Ligne de séparation
+            ('LINEBELOW', (0, 0), (1, 0), 0.5, COLORS["border"]),
+            ('LINEBELOW', (0, 1), (1, 1), 0.5, COLORS["border"]),
             
-            ('TOPPADDING', (0, 0), (-1, -2), 5),
-            ('BOTTOMPADDING', (0, 0), (-1, -2), 5),
+            # Style du total TTC
+            ('BACKGROUND', (0, 2), (1, 2), COLORS["primary"]),
+            ('TOPPADDING', (0, 2), (1, 2), 12),
+            ('BOTTOMPADDING', (0, 2), (1, 2), 12),
+            ('LEFTPADDING', (0, 2), (0, 2), 15),
+            ('RIGHTPADDING', (1, 2), (1, 2), 15),
         ]))
         
-        # Wrapper pour aligner à droite
-        wrapper_table = Table([[totals_table]], colWidths=[17*cm])
-        wrapper_table.setStyle(TableStyle([
-            ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
-        ]))
-        
-        elements.append(wrapper_table)
+        # Aligné à droite
+        elements.append(Table([[Spacer(1, 1), totals_table]], colWidths=[10*cm, 8*cm]))
         elements.append(Spacer(1, 1*cm))
         
         return elements
     
     def _build_conditions(self, devis: DevisContent) -> list:
-        """Construit la section des conditions."""
+        """Section conditions."""
+        elements = []
+        elements.append(Paragraph("CONDITIONS DE RÈGLEMENT & VALIDITÉ", self.styles['SectionHeader']))
+        elements.append(Paragraph(devis.conditions, ParagraphStyle('c', fontSize=9.5, textColor=COLORS["medium"], leading=14)))
+        elements.append(Spacer(1, 1*cm))
+        return elements
+    
+    def _build_signature_block(self) -> list:
+        """Bloc pour signature."""
         elements = []
         
-        elements.append(Paragraph("CONDITIONS", self.styles['SectionHeader']))
-        elements.append(Paragraph(devis.conditions, self.styles['DevisBody']))
-        elements.append(Spacer(1, 1*cm))
+        sig_data = [
+            [Paragraph("Pour nana-intelligence", self.styles['SectionHeader']), 
+             Paragraph("Pour le Client (Bon pour accord)", self.styles['SectionHeader'])],
+            [Paragraph("<i>Signature életronique certifiée</i>", ParagraphStyle('s', fontSize=8, textColor=colors.grey)), 
+             Spacer(1, 2.5*cm)]
+        ]
         
+        sig_table = Table(sig_data, colWidths=[9*cm, 9*cm])
+        sig_table.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('BOX', (1, 0), (1, 1), 0.5, COLORS["border"]), # Cadre pour signature client
+        ]))
+        
+        elements.append(sig_table)
         return elements
     
     def _build_footer(self) -> list:
-        """Construit le pied de page."""
+        """Pied de page final."""
         elements = []
+        elements.append(Spacer(1, 1.5*cm))
         
-        elements.append(HRFlowable(
-            width="100%",
-            thickness=1,
-            color=COLORS["light"],
-            spaceBefore=20,
-            spaceAfter=10,
-        ))
-        
-        footer_text = f"""
-        <b>{COMPANY_INFO['name']}</b> | {COMPANY_INFO['email']} | {COMPANY_INFO['website']}
-        """
-        
-        elements.append(Paragraph(
-            footer_text.strip(),
-            ParagraphStyle('footer', fontSize=9, alignment=TA_CENTER, textColor=colors.grey)
-        ))
+        footer_text = f"<b>{COMPANY_INFO['name']}</b> | {COMPANY_INFO['email']} | {COMPANY_INFO['website']}"
+        elements.append(Paragraph(footer_text, ParagraphStyle('footer', fontSize=8, alignment=TA_CENTER, textColor=colors.grey)))
         
         return elements
 

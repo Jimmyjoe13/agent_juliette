@@ -47,6 +47,19 @@ class DevisGenerator:
         Returns:
             DevisContent: Le devis structuré
         """
+        devis, _ = self.generate_with_context(lead)
+        return devis
+    
+    def generate_with_context(self, lead: LeadRequest) -> tuple[DevisContent, str]:
+        """
+        Génère un devis complet pour un lead et retourne aussi le contexte entreprise.
+        
+        Args:
+            lead: Les informations du lead
+            
+        Returns:
+            tuple: (DevisContent, company_context_str)
+        """
         logger.info(f"Génération du devis pour {lead.full_name} ({lead.service_type.value})")
         
         # 1. [NOUVEAU] Recherche Perplexity sur l'entreprise
@@ -101,7 +114,7 @@ class DevisGenerator:
         
         logger.info(f"✅ Devis généré: {devis.reference} - Total: {devis.total_ttc:.2f}€ TTC")
         
-        return devis
+        return devis, company_context
     
     def _research_company(self, lead: LeadRequest):
         """
@@ -259,6 +272,7 @@ class DevisGenerator:
         for ligne in data.get("lignes_devis", []):
             items.append(DevisItem(
                 description=ligne.get("description", "Service"),
+                details=ligne.get("details"),
                 quantity=ligne.get("quantite", 1),
                 unit_price=float(ligne.get("prix_unitaire", 0)),
             ))

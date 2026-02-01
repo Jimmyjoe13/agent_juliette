@@ -1,0 +1,16 @@
+{
+    "data": {
+        "responseId": "test-email-ia-001",
+        "fields": [
+            {"key": "first_name", "value": "Sophie"},
+            {"key": "last_name", "value": "Martin"},
+            {"key": "email", "value": "sophie.martin@example.com"},
+            {"key": "company", "value": "TechStartup"},
+            {"key": "website", "value": "https://techstartup.io"},
+            {"key": "service_type", "value": "automation_ia"},
+            {"key": "project_description", "value": "Nous voulons automatiser notre processus de onboarding client avec un chatbot IA et des workflows CRM"},
+            {"key": "budget_range", "value": "5-10k"},
+            {"key": "consent", "value": "true"}
+        ]
+    }
+}

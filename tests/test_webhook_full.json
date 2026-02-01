@@ -1,0 +1,24 @@
+{
+    "eventId": "test-full-flow-004",
+    "eventType": "FORM_RESPONSE",
+    "createdAt": "2026-02-01T22:30:00Z",
+    "data": {
+        "responseId": "resp-sophie-full-004",
+        "submissionId": "sub-sophie-full-004",
+        "respondentId": "resp-sophie",
+        "formId": "form-sophie",
+        "formName": "Demande de devis - Sophie Martin",
+        "createdAt": "2026-02-01T22:30:00Z",
+        "fields": [
+            {"key": "f1", "label": "Prénom", "type": "INPUT_TEXT", "value": "Sophie"},
+            {"key": "f2", "label": "Nom", "type": "INPUT_TEXT", "value": "Martin"},
+            {"key": "f3", "label": "Email Pro", "type": "INPUT_TEXT", "value": "jimmygay13180@gmail.com"},
+            {"key": "f4", "label": "Entreprise", "type": "INPUT_TEXT", "value": "Martin Robotics"},
+            {"key": "f5", "label": "Site Web", "type": "INPUT_TEXT", "value": "https://martin-robotics.com"},
+            {"key": "f6", "label": "Type de service", "type": "DROPDOWN", "value": "automatisation & ia"},
+            {"key": "f7", "label": "Votre Besoin", "type": "TEXTAREA", "value": "Bonjour, nous souhaitons automatiser notre SAV avec un assistant IA qui se connecte à notre CRM Salesforce pour gérer les demandes de nos clients ingénieurs."},
+            {"key": "f8", "label": "Budget estimé", "type": "DROPDOWN", "value": "10k+"},
+            {"key": "f9", "label": "Consentement", "type": "CHECKBOXES", "value": true}
+        ]
+    }
+}

@@ -47,6 +47,7 @@ class LeadRequest(BaseModel):
 class DevisItem(BaseModel):
     """Un élément/ligne du devis."""
     description: str
+    details: str | None = Field(None, description="Détails et livrables de la prestation")
     quantity: int = 1
     unit_price: float
     

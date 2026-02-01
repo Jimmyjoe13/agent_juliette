@@ -1,0 +1,12 @@
+{
+    "first_name": "Sophie",
+    "last_name": "Martin",
+    "email": "jimmygay13180@gmail.com",
+    "company": "TechStartup",
+    "website": "https://techstartup.io",
+    "service_type": "automation_ia",
+    "project_description": "Nous voulons automatiser notre processus de onboarding client avec un chatbot IA et des workflows CRM pour gagner du temps sur le support.",
+    "budget_range": "5-10k",
+    "tally_response_id": "test-sophie-final",
+    "consent": true
+}

@@ -10,6 +10,7 @@ from datetime import datetime
 from src.models import LeadRequest, DevisContent
 from src.agent.devis_generator import get_devis_generator
 from src.agent.pdf_service import get_pdf_service
+from src.agent.email_generator import get_email_generator
 from src.integrations.gmail_service import get_gmail_service
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ class ProcessingResult:
     error: str | None = None
     total_ttc: float | None = None
     processing_time_ms: int = 0
+    email_subject: str | None = None  # Nouveau: sujet de l'email généré
 
 
 class AgentOrchestrator:
@@ -33,16 +35,18 @@ class AgentOrchestrator:
     Orchestrateur principal de l'Agent Juliette.
     
     Coordonne le flux complet de traitement d'un lead:
-    1. Génération du devis (RAG + LLM)
+    1. Génération du devis (Perplexity + RAG + LLM)
     2. Création du PDF
-    3. Création du brouillon Gmail
+    3. Génération de l'email personnalisé (LLM)
+    4. Création du brouillon Gmail
     """
     
     def __init__(self):
         self.devis_generator = get_devis_generator()
         self.pdf_service = get_pdf_service()
+        self.email_generator = get_email_generator()
         self.gmail_service = get_gmail_service()
-        logger.info("AgentOrchestrator initialisé")
+        logger.info("AgentOrchestrator initialisé (avec email IA)")
     
     def process_lead(self, lead: LeadRequest) -> ProcessingResult:
         """
@@ -59,36 +63,43 @@ class AgentOrchestrator:
         logger.info(f"🚀 Début traitement lead: {lead.full_name} ({lead.tally_response_id})")
         
         try:
-            # Étape 1: Génération du devis
-            logger.info("📝 Étape 1/3: Génération du devis...")
-            devis = self.devis_generator.generate(lead)
+            # Étape 1: Génération du devis (avec contexte entreprise pour l'email)
+            logger.info("📝 Étape 1/4: Génération du devis...")
+            devis, company_context = self.devis_generator.generate_with_context(lead)
             logger.info(f"   → Devis {devis.reference} généré ({devis.total_ttc:.2f}€ TTC)")
             
             # Étape 2: Génération du PDF
-            logger.info("📄 Étape 2/3: Génération du PDF...")
+            logger.info("📄 Étape 2/4: Génération du PDF...")
             pdf_path = self.pdf_service.generate(devis)
             logger.info(f"   → PDF créé: {pdf_path}")
             
-            # Étape 3: Création du brouillon Gmail
+            # Étape 3: Génération de l'email personnalisé par IA
+            logger.info("✉️ Étape 3/4: Génération de l'email IA...")
+            email = self.email_generator.generate(
+                lead=lead,
+                devis=devis,
+                company_context=company_context if company_context else None,
+            )
+            logger.info(f"   → Email généré - Sujet: {email.subject[:50]}...")
+            
+            # Étape 4: Création du brouillon Gmail
             draft_id = None
+            logger.info(f"📧 Étape 4/4: Vérification configuration Gmail...")
             if self.gmail_service.is_configured():
-                logger.info("📧 Étape 3/3: Création du brouillon Gmail...")
+                logger.info("📧 Création du brouillon Gmail...")
                 try:
-                    draft_result = self.gmail_service.create_devis_draft(
-                        client_name=lead.full_name,
-                        client_email=lead.email,
-                        devis_reference=devis.reference,
-                        devis_title=devis.title,
-                        total_ttc=devis.total_ttc,
-                        pdf_path=pdf_path,
+                    draft_result = self.gmail_service.create_draft(
+                        to=lead.email,
+                        subject=email.subject,
+                        body_html=email.body_html,
+                        attachment_path=pdf_path,
                     )
                     draft_id = draft_result['draft_id']
-                    logger.info(f"   → Brouillon créé: {draft_id}")
+                    logger.info(f"   → Brouillon {draft_id} créé avec succès")
                 except Exception as e:
-                    logger.warning(f"   ⚠️ Erreur création brouillon: {e}")
-                    # On continue même si l'email échoue
+                    logger.error(f"   ❌ Erreur CRITIQUE création brouillon: {e}", exc_info=True)
             else:
-                logger.info("📧 Étape 3/3: Gmail non configuré, brouillon ignoré")
+                logger.warning("📧 Gmail non configuré (credentials.json ou token.json manquant/invalide)")
             
             # Calcul du temps de traitement
             processing_time = int((datetime.now() - start_time).total_seconds() * 1000)
@@ -103,6 +114,7 @@ class AgentOrchestrator:
                 draft_id=draft_id,
                 total_ttc=devis.total_ttc,
                 processing_time_ms=processing_time,
+                email_subject=email.subject,
             )
             
         except Exception as e:
