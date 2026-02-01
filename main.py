@@ -4,6 +4,7 @@ Point d'entrée principal de l'application.
 """
 
 import logging
+import time
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -21,6 +22,46 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+# Cache d'idempotence pour éviter les doublons
+# Structure: {response_id: (timestamp, result)}
+# Les entrées expirent après 1 heure
+PROCESSED_LEADS_CACHE: dict[str, tuple[float, dict]] = {}
+CACHE_EXPIRY_SECONDS = 3600  # 1 heure
+
+
+def cleanup_expired_cache():
+    """Nettoie les entrées expirées du cache."""
+    current_time = time.time()
+    expired_keys = [
+        key for key, (timestamp, _) in PROCESSED_LEADS_CACHE.items()
+        if current_time - timestamp > CACHE_EXPIRY_SECONDS
+    ]
+    for key in expired_keys:
+        del PROCESSED_LEADS_CACHE[key]
+
+
+def is_lead_already_processed(response_id: str) -> dict | None:
+    """
+    Vérifie si un lead a déjà été traité.
+    
+    Returns:
+        Le résultat précédent si déjà traité, None sinon
+    """
+    cleanup_expired_cache()
+    
+    if response_id in PROCESSED_LEADS_CACHE:
+        timestamp, result = PROCESSED_LEADS_CACHE[response_id]
+        logger.warning(f"⚠️ Lead {response_id} déjà traité (cache hit)")
+        return result
+    
+    return None
+
+
+def mark_lead_as_processed(response_id: str, result: dict):
+    """Marque un lead comme traité dans le cache."""
+    PROCESSED_LEADS_CACHE[response_id] = (time.time(), result)
+    logger.info(f"📝 Lead {response_id} ajouté au cache d'idempotence")
 
 
 @asynccontextmanager
@@ -59,6 +100,20 @@ async def health_check() -> dict[str, str]:
     Supporte GET et HEAD pour les services de monitoring (UptimeRobot, etc.)
     """
     return {"status": "healthy", "agent": "juliette"}
+
+
+@app.get("/cache/status")
+async def cache_status() -> dict:
+    """
+    Retourne le statut du cache d'idempotence.
+    Utile pour le debug.
+    """
+    cleanup_expired_cache()
+    return {
+        "cached_leads_count": len(PROCESSED_LEADS_CACHE),
+        "cached_leads": list(PROCESSED_LEADS_CACHE.keys()),
+        "cache_expiry_seconds": CACHE_EXPIRY_SECONDS,
+    }
 
 
 @app.get("/rag/info")
@@ -219,6 +274,14 @@ async def webhook_tally(request: Request) -> WebhookResponse:
         # Transformation en LeadRequest
         lead = parse_tally_to_lead(tally_payload)
         
+        # ===== IDEMPOTENCE CHECK =====
+        # Vérifier si ce lead a déjà été traité (évite les doublons)
+        cached_result = is_lead_already_processed(lead.tally_response_id)
+        if cached_result:
+            logger.warning(f"🔄 Lead {lead.tally_response_id} déjà traité, retour du cache")
+            return WebhookResponse(**cached_result)
+        # =============================
+        
         logger.info(f"✅ Lead reçu: {lead.full_name} ({lead.email})")
         logger.info(f"   Service: {lead.service_type.value}")
         logger.info(f"   Besoin: {lead.project_description[:100]}...")
@@ -230,18 +293,21 @@ async def webhook_tally(request: Request) -> WebhookResponse:
         result = orchestrator.process_lead(lead)
         
         if result.success:
-            return WebhookResponse(
-                success=True,
-                message=f"Devis {result.devis_reference} créé avec succès",
-                lead_reference=lead.tally_response_id,
-                data={
+            response_data = {
+                "success": True,
+                "message": f"Devis {result.devis_reference} créé avec succès",
+                "lead_reference": lead.tally_response_id,
+                "data": {
                     "devis_reference": result.devis_reference,
                     "pdf_path": result.pdf_path,
                     "draft_id": result.draft_id,
                     "total_ttc": result.total_ttc,
                     "processing_time_ms": result.processing_time_ms,
                 }
-            )
+            }
+            # Marquer comme traité dans le cache
+            mark_lead_as_processed(lead.tally_response_id, response_data)
+            return WebhookResponse(**response_data)
         else:
             logger.error(f"Échec traitement lead: {result.error}")
             return WebhookResponse(
