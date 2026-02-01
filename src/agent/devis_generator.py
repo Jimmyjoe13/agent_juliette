@@ -8,8 +8,11 @@ import logging
 import uuid
 from datetime import datetime, timedelta
 
+from pydantic import ValidationError
+
 from src.models import LeadRequest, DevisContent, DevisItem
 from src.agent.prompts import get_system_prompt, build_user_prompt
+from src.agent.devis_schemas import LLMDevisPayload, extract_json_from_text
 from src.integrations.openai_service import get_openai_service
 from src.integrations.qdrant_service import get_qdrant_service
 
@@ -59,18 +62,25 @@ class DevisGenerator:
             service_type=lead.service_type,
         )
         
-        # 3. Génération via LLM
-        logger.info("Appel OpenAI pour génération du devis...")
+        # 3. Génération via LLM avec mode JSON pour forcer une sortie structurée
+        logger.info("Appel OpenAI pour génération du devis (mode JSON activé)...")
         response = self.openai.generate_completion(
             prompt=user_prompt,
             system_prompt=system_prompt,
             context=context,
             max_tokens=2500,
-            temperature=0.7,
+            temperature=0.5,  # Réduit pour plus de cohérence structurelle
+            json_mode=True,   # Force le LLM à retourner du JSON valide
         )
         
-        # 4. Parsing du JSON
-        devis_data = self._parse_response(response)
+        # 4. Parsing du JSON avec validation
+        devis_data = self._parse_response(response, lead)
+        
+        # Log du contexte RAG utilisé pour debugging
+        if context:
+            logger.info(f"📚 Contexte RAG utilisé: {len(context)} caractères")
+        else:
+            logger.warning("⚠️ Aucun contexte RAG trouvé - devis basé uniquement sur le prompt")
         
         # 5. Création du DevisContent
         devis = self._build_devis_content(lead, devis_data)
@@ -100,38 +110,101 @@ class DevisGenerator:
         
         return context
     
-    def _parse_response(self, response: str) -> dict:
-        """Parse la réponse JSON du LLM."""
+    def _parse_response(self, response: str, lead: LeadRequest) -> dict:
+        """
+        Parse et valide la réponse JSON du LLM.
+        
+        Stratégie en 3 étapes:
+        1. Tentative directe de parsing JSON
+        2. Extraction du premier objet JSON si texte autour
+        3. Fallback contextualisé basé sur le lead (pas un template fixe)
+        
+        Args:
+            response: Réponse brute du LLM
+            lead: Informations du lead pour le fallback contextualisé
+            
+        Returns:
+            dict: Données du devis validées
+        """
+        # Nettoyage initial des backticks markdown
+        cleaned = response.strip()
+        if cleaned.startswith("```json"):
+            cleaned = cleaned[7:]
+        elif cleaned.startswith("```"):
+            cleaned = cleaned[3:]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+        cleaned = cleaned.strip()
+        
+        # === ÉTAPE 1: Tentative directe ===
         try:
-            # Nettoyage de la réponse (parfois le LLM ajoute des backticks)
-            cleaned = response.strip()
-            if cleaned.startswith("```json"):
-                cleaned = cleaned[7:]
-            if cleaned.startswith("```"):
-                cleaned = cleaned[3:]
-            if cleaned.endswith("```"):
-                cleaned = cleaned[:-3]
-            
-            return json.loads(cleaned.strip())
-        except json.JSONDecodeError as e:
-            logger.error(f"Erreur parsing JSON: {e}")
-            logger.error(f"Réponse brute: {response[:500]}...")
-            
-            # Fallback avec un devis minimal
-            return {
-                "titre": "Devis personnalisé",
-                "introduction": "Suite à votre demande, voici notre proposition.",
-                "lignes_devis": [
-                    {
-                        "description": "Prestation sur mesure",
-                        "details": "À définir ensemble",
-                        "quantite": 1,
-                        "prix_unitaire": 1000.00
-                    }
-                ],
-                "conditions": "Devis valable 30 jours. Paiement 50% à la commande, 50% à la livraison.",
-                "message_personnel": "N'hésitez pas à me contacter pour en discuter."
-            }
+            data = json.loads(cleaned)
+            validated = LLMDevisPayload.model_validate(data)
+            logger.info("✅ JSON parsé et validé avec succès (stratégie: directe)")
+            return validated.model_dump()
+        except json.JSONDecodeError:
+            logger.debug("Parsing direct échoué, tentative d'extraction...")
+        except ValidationError as e:
+            logger.warning(f"JSON valide mais structure incorrecte: {e.error_count()} erreurs")
+            # On continue pour tenter une extraction plus fine
+        
+        # === ÉTAPE 2: Extraction du JSON depuis le texte ===
+        extracted = extract_json_from_text(response)
+        if extracted:
+            try:
+                data = json.loads(extracted)
+                validated = LLMDevisPayload.model_validate(data)
+                logger.info("✅ JSON extrait et validé avec succès (stratégie: extraction)")
+                return validated.model_dump()
+            except json.JSONDecodeError as e:
+                logger.warning(f"JSON extrait invalide: {e}")
+            except ValidationError as e:
+                logger.warning(f"JSON extrait mais validation échouée: {e.error_count()} erreurs")
+                for error in e.errors()[:3]:  # Log les 3 premières erreurs
+                    logger.warning(f"  - {error['loc']}: {error['msg']}")
+        
+        # === ÉTAPE 3: Fallback contextualisé ===
+        logger.error(f"❌ Impossible de parser la réponse LLM, utilisation du fallback contextualisé")
+        logger.error(f"Réponse brute (500 premiers chars): {response[:500]}")
+        
+        # Fallback basé sur le lead (pas un template fixe!)
+        service_name = lead.service_type.value.replace("_", " ").title()
+        return {
+            "titre": f"Devis {service_name} - {lead.company or lead.full_name}",
+            "introduction": f"Cher(e) {lead.first_name}, suite à votre demande concernant {lead.project_description[:100]}..., voici notre proposition personnalisée.",
+            "lignes_devis": [
+                {
+                    "description": f"Prestation {service_name}",
+                    "details": f"Selon votre besoin: {lead.project_description[:150]}",
+                    "quantite": 1,
+                    "prix_unitaire": self._estimate_price_from_budget(lead.budget_range)
+                }
+            ],
+            "conditions": "Devis valable 30 jours. Paiement 50% à la commande, 50% à la livraison.",
+            "message_personnel": f"N'hésitez pas à me contacter pour affiner cette proposition, {lead.first_name}."
+        }
+    
+    def _estimate_price_from_budget(self, budget_range: str | None) -> float:
+        """
+        Estime un prix basé sur la fourchette budgétaire du lead.
+        Utilisé uniquement pour le fallback.
+        """
+        if not budget_range:
+            return 1500.0
+        
+        budget_lower = budget_range.lower()
+        if "< 1" in budget_lower or "<1" in budget_lower or "moins de 1" in budget_lower:
+            return 800.0
+        elif "1" in budget_lower and "3" in budget_lower:  # 1-3k
+            return 2000.0
+        elif "3" in budget_lower and "5" in budget_lower:  # 3-5k
+            return 4000.0
+        elif "5" in budget_lower and "10" in budget_lower:  # 5-10k
+            return 7500.0
+        elif "10" in budget_lower or "+" in budget_lower or ">" in budget_lower:
+            return 12000.0
+        else:
+            return 1500.0
     
     def _build_devis_content(self, lead: LeadRequest, data: dict) -> DevisContent:
         """Construit l'objet DevisContent à partir des données générées."""

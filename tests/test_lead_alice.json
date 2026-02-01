@@ -1,0 +1,12 @@
+{
+    "first_name": "Alice",
+    "last_name": "Martin",
+    "email": "alice@techcorp.fr",
+    "company": "TechCorp",
+    "website": "https://techcorp.fr",
+    "service_type": "seo_growth",
+    "project_description": "Improve our Google SEO to increase organic traffic for our e-commerce website",
+    "budget_range": "3-5k",
+    "consent": true,
+    "tally_response_id": "test-alice-001"
+}

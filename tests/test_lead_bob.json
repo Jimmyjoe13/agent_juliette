@@ -1,0 +1,12 @@
+{
+    "first_name": "Bob",
+    "last_name": "Dupont",
+    "email": "bob@startup.io",
+    "company": "StartupIO",
+    "website": "https://startup.io",
+    "service_type": "automation_ia",
+    "project_description": "Automate our CRM with n8n workflows and integrate ChatGPT for customer support",
+    "budget_range": "5-10k",
+    "consent": true,
+    "tally_response_id": "test-bob-002"
+}

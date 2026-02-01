@@ -88,6 +88,7 @@ class OpenAIService:
         context: str | None = None,
         max_tokens: int = 2000,
         temperature: float = 0.7,
+        json_mode: bool = False,
     ) -> str:
         """
         Génère une completion de texte via GPT.
@@ -98,6 +99,7 @@ class OpenAIService:
             context: Contexte RAG optionnel à inclure
             max_tokens: Nombre maximum de tokens en sortie
             temperature: Créativité (0-1)
+            json_mode: Si True, force le modèle à retourner du JSON valide
             
         Returns:
             Le texte généré
@@ -106,13 +108,16 @@ class OpenAIService:
         
         # Prompt système
         if system_prompt:
+            # En mode JSON, on rappelle explicitement au modèle de retourner du JSON
+            if json_mode:
+                system_prompt = system_prompt + "\n\nIMPORTANT: Tu DOIS répondre UNIQUEMENT avec un objet JSON valide, sans texte avant ou après."
             messages.append({"role": "system", "content": system_prompt})
         
         # Ajout du contexte RAG si fourni
         if context:
             messages.append({
                 "role": "system",
-                "content": f"Voici des informations contextuelles pertinentes:\n\n{context}"
+                "content": f"Voici des informations contextuelles pertinentes que tu DOIS utiliser pour personnaliser ta réponse:\n\n{context}"
             })
         
         # Prompt utilisateur
@@ -138,6 +143,12 @@ class OpenAIService:
             params["max_completion_tokens"] = max_tokens
             params["temperature"] = temperature
         
+        # Ajout du mode JSON si demandé
+        # Note: Le mode JSON requiert que "JSON" soit mentionné dans le prompt système
+        if json_mode and not is_reasoning_model:
+            params["response_format"] = {"type": "json_object"}
+            logger.debug("Mode JSON activé (response_format: json_object)")
+        
         try:
             response = self.client.chat.completions.create(**params)
         except Exception as e:
@@ -149,6 +160,11 @@ class OpenAIService:
                 response = self.client.chat.completions.create(**params)
             elif "temperature" in error_msg:
                 params.pop("temperature", None)
+                response = self.client.chat.completions.create(**params)
+            elif "response_format" in error_msg:
+                # Le modèle ne supporte pas le mode JSON
+                logger.warning(f"Le modèle {self.model} ne supporte pas response_format, désactivation du mode JSON")
+                params.pop("response_format", None)
                 response = self.client.chat.completions.create(**params)
             else:
                 raise
