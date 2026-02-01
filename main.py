@@ -42,8 +42,12 @@ app = FastAPI(
 
 
 @app.get("/health")
+@app.head("/health")
 async def health_check() -> dict[str, str]:
-    """Endpoint de vérification de l'état de l'API."""
+    """
+    Endpoint de vérification de l'état de l'API.
+    Supporte GET et HEAD pour les services de monitoring (UptimeRobot, etc.)
+    """
     return {"status": "healthy", "agent": "juliette"}
 
 
