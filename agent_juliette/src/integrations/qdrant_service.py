@@ -93,18 +93,19 @@ class QdrantService:
             # TODO: Implémenter les filtres complexes si nécessaire
             pass
         
-        # Recherche dans Qdrant
-        results = self.client.search(
+        # Recherche dans Qdrant avec la nouvelle API query_points
+        results = self.client.query_points(
             collection_name=self.collection_name,
-            query_vector=query_embedding,
+            query=query_embedding,
             limit=limit,
             score_threshold=score_threshold,
             query_filter=qdrant_filter,
+            with_payload=True,
         )
         
         # Transformation des résultats
         search_results = []
-        for hit in results:
+        for hit in results.points:
             payload = hit.payload or {}
             search_results.append(SearchResult(
                 id=str(hit.id),
@@ -220,13 +221,32 @@ class QdrantService:
     
     def get_collection_info(self) -> dict:
         """Retourne les informations sur la collection."""
-        info = self.client.get_collection(self.collection_name)
-        return {
-            "name": self.collection_name,
-            "vectors_count": info.vectors_count,
-            "points_count": info.points_count,
-            "status": info.status.value,
-        }
+        try:
+            info = self.client.get_collection(self.collection_name)
+            # Extraction robuste des informations
+            points_count = 0
+            if hasattr(info, 'points_count'):
+                points_count = info.points_count if isinstance(info.points_count, int) else 0
+            
+            status = "unknown"
+            if hasattr(info, 'status'):
+                status = str(info.status.value) if hasattr(info.status, 'value') else str(info.status)
+            
+            return {
+                "name": self.collection_name,
+                "points_count": points_count,
+                "status": status,
+                "connected": True,
+            }
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des infos collection: {e}")
+            return {
+                "name": self.collection_name,
+                "points_count": 0,
+                "status": "error",
+                "connected": False,
+                "error": str(e),
+            }
 
 
 @lru_cache

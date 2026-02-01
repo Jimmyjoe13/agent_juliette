@@ -118,12 +118,40 @@ class OpenAIService:
         # Prompt utilisateur
         messages.append({"role": "user", "content": prompt})
         
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
+        # Construction des paramètres de base
+        params = {
+            "model": self.model,
+            "messages": messages,
+        }
+        
+        # Détermination des paramètres selon le modèle
+        # Certains modèles (o1, gpt-5-nano) ne supportent pas temperature
+        # et utilisent max_completion_tokens au lieu de max_tokens
+        model_lower = self.model.lower()
+        is_reasoning_model = any(m in model_lower for m in ['o1', 'o3', 'gpt-5'])
+        
+        if is_reasoning_model:
+            # Modèles de raisonnement: pas de temperature, max_completion_tokens
+            params["max_completion_tokens"] = max_tokens
+        else:
+            # Autres modèles: temperature supporté
+            params["max_completion_tokens"] = max_tokens
+            params["temperature"] = temperature
+        
+        try:
+            response = self.client.chat.completions.create(**params)
+        except Exception as e:
+            error_msg = str(e).lower()
+            # Fallback si le paramètre n'est pas supporté
+            if "max_completion_tokens" in error_msg:
+                params.pop("max_completion_tokens", None)
+                params["max_tokens"] = max_tokens
+                response = self.client.chat.completions.create(**params)
+            elif "temperature" in error_msg:
+                params.pop("temperature", None)
+                response = self.client.chat.completions.create(**params)
+            else:
+                raise
         
         content = response.choices[0].message.content
         logger.debug(f"Completion générée: {len(content)} caractères")

@@ -109,3 +109,4 @@ class WebhookResponse(BaseModel):
     message: str
     lead_reference: str | None = None
     draft_id: str | None = None
+    data: dict | None = None  # Données additionnelles du traitement

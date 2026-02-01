@@ -62,6 +62,114 @@ async def rag_info() -> dict:
         raise HTTPException(status_code=503, detail=f"Qdrant indisponible: {str(e)}")
 
 
+@app.get("/rag/search")
+async def rag_search(query: str, limit: int = 3) -> dict:
+    """
+    Teste la recherche RAG avec une requête.
+    
+    Args:
+        query: La requête de recherche
+        limit: Nombre de résultats (défaut: 3)
+    """
+    try:
+        from src.integrations.qdrant_service import get_qdrant_service
+        qdrant = get_qdrant_service()
+        results = qdrant.search(query, limit=limit, score_threshold=0.5)
+        
+        return {
+            "query": query,
+            "results_count": len(results),
+            "results": [
+                {
+                    "score": r.score,
+                    "content": r.content[:200] + "..." if len(r.content) > 200 else r.content,
+                    "metadata": r.metadata,
+                }
+                for r in results
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Erreur recherche RAG: {e}")
+        raise HTTPException(status_code=500, detail=f"Erreur recherche: {str(e)}")
+
+
+@app.post("/agent/test-devis")
+async def test_devis_generation(request: Request) -> dict:
+    """
+    Endpoint de test pour la génération de devis.
+    Accepte un LeadRequest et retourne le devis généré.
+    """
+    try:
+        from src.models import LeadRequest
+        from src.agent.devis_generator import get_devis_generator
+        
+        data = await request.json()
+        lead = LeadRequest(**data)
+        
+        generator = get_devis_generator()
+        devis = generator.generate(lead)
+        
+        return {
+            "success": True,
+            "devis": {
+                "reference": devis.reference,
+                "title": devis.title,
+                "client_name": devis.client_name,
+                "introduction": devis.introduction,
+                "items": [
+                    {
+                        "description": item.description,
+                        "quantity": item.quantity,
+                        "unit_price": item.unit_price,
+                        "total": item.total,
+                    }
+                    for item in devis.items
+                ],
+                "subtotal": devis.subtotal,
+                "tva": devis.tva,
+                "total_ttc": devis.total_ttc,
+                "conditions": devis.conditions,
+                "valid_until": devis.valid_until.isoformat(),
+            }
+        }
+    except Exception as e:
+        logger.exception(f"Erreur génération devis: {e}")
+        raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
+
+
+@app.post("/agent/test-pdf")
+async def test_pdf_generation(request: Request) -> dict:
+    """
+    Endpoint de test pour la génération complète (devis + PDF).
+    Accepte un LeadRequest et retourne le chemin du PDF généré.
+    """
+    try:
+        from src.models import LeadRequest
+        from src.agent.devis_generator import get_devis_generator
+        from src.agent.pdf_service import get_pdf_service
+        
+        data = await request.json()
+        lead = LeadRequest(**data)
+        
+        # Génération du devis
+        generator = get_devis_generator()
+        devis = generator.generate(lead)
+        
+        # Génération du PDF
+        pdf_service = get_pdf_service()
+        pdf_path = pdf_service.generate(devis)
+        
+        return {
+            "success": True,
+            "devis_reference": devis.reference,
+            "pdf_path": pdf_path,
+            "total_ttc": devis.total_ttc,
+        }
+    except Exception as e:
+        logger.exception(f"Erreur génération PDF: {e}")
+        raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
+
+
 @app.post("/webhook/tally", response_model=WebhookResponse)
 async def webhook_tally(request: Request) -> WebhookResponse:
     """
@@ -101,17 +209,32 @@ async def webhook_tally(request: Request) -> WebhookResponse:
         logger.info(f"   Service: {lead.service_type.value}")
         logger.info(f"   Besoin: {lead.project_description[:100]}...")
         
-        # TODO: Phase suivante - Traitement par l'agent IA
-        # - Recherche RAG dans Qdrant
-        # - Génération du devis via OpenAI
-        # - Création du PDF
-        # - Création du brouillon Gmail
+        # Traitement complet par l'orchestrateur
+        from src.agent.orchestrator import get_orchestrator
         
-        return WebhookResponse(
-            success=True,
-            message="Lead reçu et en cours de traitement",
-            lead_reference=lead.tally_response_id,
-        )
+        orchestrator = get_orchestrator()
+        result = orchestrator.process_lead(lead)
+        
+        if result.success:
+            return WebhookResponse(
+                success=True,
+                message=f"Devis {result.devis_reference} créé avec succès",
+                lead_reference=lead.tally_response_id,
+                data={
+                    "devis_reference": result.devis_reference,
+                    "pdf_path": result.pdf_path,
+                    "draft_id": result.draft_id,
+                    "total_ttc": result.total_ttc,
+                    "processing_time_ms": result.processing_time_ms,
+                }
+            )
+        else:
+            logger.error(f"Échec traitement lead: {result.error}")
+            return WebhookResponse(
+                success=False,
+                message=f"Erreur lors du traitement: {result.error}",
+                lead_reference=lead.tally_response_id,
+            )
         
     except ValueError as e:
         logger.error(f"Erreur de validation: {e}")
