@@ -1,0 +1,24 @@
+{
+    "eventId": "test-async-002",
+    "eventType": "FORM_RESPONSE",
+    "createdAt": "2026-02-02T08:30:00Z",
+    "data": {
+        "responseId": "resp-async-test-002",
+        "submissionId": "sub-async-test-002",
+        "respondentId": "resp-bob",
+        "formId": "form-bob",
+        "formName": "Test webhook asynchrone 2",
+        "createdAt": "2026-02-02T08:30:00Z",
+        "fields": [
+            {"key": "f1", "label": "Prénom", "type": "INPUT_TEXT", "value": "Bob"},
+            {"key": "f2", "label": "Nom", "type": "INPUT_TEXT", "value": "Leroy"},
+            {"key": "f3", "label": "Email Pro", "type": "INPUT_TEXT", "value": "jimmygay13180@gmail.com"},
+            {"key": "f4", "label": "Entreprise", "type": "INPUT_TEXT", "value": "LeroyTech"},
+            {"key": "f5", "label": "Site Web", "type": "INPUT_TEXT", "value": "https://leroytech.fr"},
+            {"key": "f6", "label": "Type de service", "type": "DROPDOWN", "value": "mass mailing & lead gen"},
+            {"key": "f7", "label": "Votre Besoin", "type": "TEXTAREA", "value": "Nous cherchons à lancer une campagne de prospection email B2B pour trouver de nouveaux clients dans le secteur IT."},
+            {"key": "f8", "label": "Budget estimé", "type": "DROPDOWN", "value": "5-10k"},
+            {"key": "f9", "label": "Consentement", "type": "CHECKBOXES", "value": true}
+        ]
+    }
+}

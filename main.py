@@ -8,7 +8,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
 
 from src.config import get_settings
@@ -29,39 +29,72 @@ logger = logging.getLogger(__name__)
 PROCESSED_LEADS_CACHE: dict[str, tuple[float, dict]] = {}
 CACHE_EXPIRY_SECONDS = 3600  # 1 heure
 
+# Cache des leads EN COURS de traitement (pour éviter les doublons pendant le processing)
+# Structure: {response_id: timestamp_start}
+PROCESSING_LEADS_CACHE: dict[str, float] = {}
+PROCESSING_TIMEOUT_SECONDS = 300  # 5 minutes max pour le traitement
+
 
 def cleanup_expired_cache():
     """Nettoie les entrées expirées du cache."""
     current_time = time.time()
+    
+    # Nettoyage des leads traités (expiration après 1h)
     expired_keys = [
         key for key, (timestamp, _) in PROCESSED_LEADS_CACHE.items()
         if current_time - timestamp > CACHE_EXPIRY_SECONDS
     ]
     for key in expired_keys:
         del PROCESSED_LEADS_CACHE[key]
+    
+    # Nettoyage des leads en processing qui ont timeout (5 min)
+    expired_processing = [
+        key for key, timestamp in PROCESSING_LEADS_CACHE.items()
+        if current_time - timestamp > PROCESSING_TIMEOUT_SECONDS
+    ]
+    for key in expired_processing:
+        logger.warning(f"⚠️ Lead {key} en processing a timeout, suppression du cache")
+        del PROCESSING_LEADS_CACHE[key]
 
 
-def is_lead_already_processed(response_id: str) -> dict | None:
+def is_lead_already_processed_or_processing(response_id: str) -> tuple[bool, dict | None]:
     """
-    Vérifie si un lead a déjà été traité.
+    Vérifie si un lead a déjà été traité OU est en cours de traitement.
     
     Returns:
-        Le résultat précédent si déjà traité, None sinon
+        tuple: (is_duplicate, cached_result_or_None)
     """
     cleanup_expired_cache()
     
+    # 1. Vérifier si déjà traité (terminé)
     if response_id in PROCESSED_LEADS_CACHE:
         timestamp, result = PROCESSED_LEADS_CACHE[response_id]
         logger.warning(f"⚠️ Lead {response_id} déjà traité (cache hit)")
-        return result
+        return True, result
     
-    return None
+    # 2. Vérifier si en cours de traitement
+    if response_id in PROCESSING_LEADS_CACHE:
+        logger.warning(f"⚠️ Lead {response_id} déjà EN COURS de traitement (doublon ignoré)")
+        return True, None
+    
+    return False, None
+
+
+def mark_lead_as_processing(response_id: str):
+    """Marque un lead comme en cours de traitement."""
+    PROCESSING_LEADS_CACHE[response_id] = time.time()
+    logger.info(f"🔄 Lead {response_id} marqué comme EN COURS de traitement")
 
 
 def mark_lead_as_processed(response_id: str, result: dict):
-    """Marque un lead comme traité dans le cache."""
+    """Marque un lead comme traité (terminé) dans le cache."""
+    # Retirer du cache de processing
+    if response_id in PROCESSING_LEADS_CACHE:
+        del PROCESSING_LEADS_CACHE[response_id]
+    
+    # Ajouter au cache des leads traités
     PROCESSED_LEADS_CACHE[response_id] = (time.time(), result)
-    logger.info(f"📝 Lead {response_id} ajouté au cache d'idempotence")
+    logger.info(f"✅ Lead {response_id} traité et ajouté au cache d'idempotence")
 
 
 @asynccontextmanager
@@ -239,13 +272,67 @@ async def test_pdf_generation(request: Request) -> dict:
         raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
 
 
+# =============================================================================
+# FONCTION DE TRAITEMENT EN ARRIÈRE-PLAN
+# =============================================================================
+
+def process_lead_background(lead):
+    """
+    Traite un lead en arrière-plan.
+    Cette fonction est appelée par BackgroundTasks après avoir répondu à Tally.
+    
+    Args:
+        lead: LeadRequest à traiter
+    """
+    from src.agent.orchestrator import get_orchestrator
+    
+    logger.info(f"🏭 [BACKGROUND] Début traitement lead: {lead.tally_response_id}")
+    
+    try:
+        orchestrator = get_orchestrator()
+        result = orchestrator.process_lead(lead)
+        
+        if result.success:
+            response_data = {
+                "success": True,
+                "message": f"Devis {result.devis_reference} créé avec succès",
+                "lead_reference": lead.tally_response_id,
+                "data": {
+                    "devis_reference": result.devis_reference,
+                    "pdf_path": result.pdf_path,
+                    "draft_id": result.draft_id,
+                    "total_ttc": result.total_ttc,
+                    "processing_time_ms": result.processing_time_ms,
+                }
+            }
+            # Marquer comme traité dans le cache
+            mark_lead_as_processed(lead.tally_response_id, response_data)
+            logger.info(f"🎉 [BACKGROUND] Lead {lead.tally_response_id} traité avec succès!")
+        else:
+            # En cas d'échec, on marque quand même comme traité pour éviter les retries
+            error_data = {
+                "success": False,
+                "message": f"Erreur: {result.error}",
+                "lead_reference": lead.tally_response_id,
+            }
+            mark_lead_as_processed(lead.tally_response_id, error_data)
+            logger.error(f"❌ [BACKGROUND] Échec traitement lead {lead.tally_response_id}: {result.error}")
+            
+    except Exception as e:
+        logger.exception(f"❌ [BACKGROUND] Erreur critique lors du traitement: {e}")
+        # Retirer du cache de processing pour permettre un retry ultérieur
+        if lead.tally_response_id in PROCESSING_LEADS_CACHE:
+            del PROCESSING_LEADS_CACHE[lead.tally_response_id]
+
+
 @app.post("/webhook/tally", response_model=WebhookResponse)
-async def webhook_tally(request: Request) -> WebhookResponse:
+async def webhook_tally(request: Request, background_tasks: BackgroundTasks) -> WebhookResponse:
     """
     Endpoint webhook pour recevoir les soumissions du formulaire Tally.
     
-    Tally envoie les données soit comme un objet unique, soit comme un array.
-    Cet endpoint gère les deux cas.
+    IMPORTANT: Ce webhook répond IMMÉDIATEMENT (< 1 seconde) pour éviter
+    que Tally ne renvoie la requête en cas de timeout.
+    Le traitement du lead est effectué en arrière-plan.
     """
     try:
         # Récupération du body brut
@@ -274,47 +361,42 @@ async def webhook_tally(request: Request) -> WebhookResponse:
         # Transformation en LeadRequest
         lead = parse_tally_to_lead(tally_payload)
         
-        # ===== IDEMPOTENCE CHECK =====
-        # Vérifier si ce lead a déjà été traité (évite les doublons)
-        cached_result = is_lead_already_processed(lead.tally_response_id)
-        if cached_result:
-            logger.warning(f"🔄 Lead {lead.tally_response_id} déjà traité, retour du cache")
-            return WebhookResponse(**cached_result)
-        # =============================
+        # ===== DOUBLE CHECK IDEMPOTENCE =====
+        # Vérifier si ce lead a déjà été traité OU est en cours de traitement
+        is_duplicate, cached_result = is_lead_already_processed_or_processing(lead.tally_response_id)
+        
+        if is_duplicate:
+            if cached_result:
+                # Lead déjà traité, on retourne le résultat en cache
+                logger.info(f"🔄 Lead {lead.tally_response_id} déjà traité, retour du cache")
+                return WebhookResponse(**cached_result)
+            else:
+                # Lead en cours de traitement, on confirme à Tally sans relancer
+                logger.info(f"⏳ Lead {lead.tally_response_id} en cours de traitement, réponse de confirmation")
+                return WebhookResponse(
+                    success=True,
+                    message="Lead déjà en cours de traitement",
+                    lead_reference=lead.tally_response_id,
+                )
+        # =====================================
+        
+        # Marquer immédiatement comme "en cours de traitement"
+        mark_lead_as_processing(lead.tally_response_id)
         
         logger.info(f"✅ Lead reçu: {lead.full_name} ({lead.email})")
         logger.info(f"   Service: {lead.service_type.value}")
         logger.info(f"   Besoin: {lead.project_description[:100]}...")
         
-        # Traitement complet par l'orchestrateur
-        from src.agent.orchestrator import get_orchestrator
+        # ===== TRAITEMENT EN ARRIÈRE-PLAN =====
+        # On répond immédiatement à Tally, le processing se fait en background
+        background_tasks.add_task(process_lead_background, lead)
         
-        orchestrator = get_orchestrator()
-        result = orchestrator.process_lead(lead)
-        
-        if result.success:
-            response_data = {
-                "success": True,
-                "message": f"Devis {result.devis_reference} créé avec succès",
-                "lead_reference": lead.tally_response_id,
-                "data": {
-                    "devis_reference": result.devis_reference,
-                    "pdf_path": result.pdf_path,
-                    "draft_id": result.draft_id,
-                    "total_ttc": result.total_ttc,
-                    "processing_time_ms": result.processing_time_ms,
-                }
-            }
-            # Marquer comme traité dans le cache
-            mark_lead_as_processed(lead.tally_response_id, response_data)
-            return WebhookResponse(**response_data)
-        else:
-            logger.error(f"Échec traitement lead: {result.error}")
-            return WebhookResponse(
-                success=False,
-                message=f"Erreur lors du traitement: {result.error}",
-                lead_reference=lead.tally_response_id,
-            )
+        # Réponse IMMÉDIATE à Tally (< 1 seconde)
+        return WebhookResponse(
+            success=True,
+            message=f"Lead {lead.tally_response_id} accepté, traitement en cours",
+            lead_reference=lead.tally_response_id,
+        )
         
     except ValueError as e:
         logger.error(f"Erreur de validation: {e}")
